@@ -1,0 +1,21 @@
+{
+  "name": "htmlmaker",
+  "version": "1.0.0",
+  "description": "Makes HTML by executing JS",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "logger": "^0.0.1",
+    "logrocket": "^2.1.1",
+    "puppeteer": "^19.6.3"
+  },
+  "devDependencies": {
+    "winston": "^3.3.3"
+  }
+}
