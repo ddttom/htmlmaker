@@ -106,7 +106,7 @@ async function scrape(url) {
     const content = await page.content();
     await browser.close();
 
-    const filePath = `${getLastPartOfPathWithoutExtension(url)}.html`; // Ensure extension is added
+    const filePath = `${getPathname(url)}.html`; // Ensure extension is added
     return new Promise((resolve, reject) => {
         const fixedcontent = fixup(content);
         fs.writeFile(filePath, fixedcontent, err => {
@@ -122,7 +122,7 @@ async function scrape(url) {
 }
 
 // Function to extract the last part of the path without the extension
-function getLastPartOfPathWithoutExtension(urlString) {
-    const parsedUrl = new URL(urlString), pathname = parsedUrl.pathname;
-    return path.basename(pathname, path.extname(pathname));
+function getPathname(urlString) {
+    const parsedUrl = new URL(urlString);
+    return parsedUrl.pathname;
 }
