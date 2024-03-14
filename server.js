@@ -9,41 +9,41 @@ const {query} = require("winston");
 // Set up the server port
 const port = process.env.PORT || 3002;
 
-let defaultSitemap = "https://main--edgeservices--ddttom.hlx.page/query-index.json";
-
+let sitemapURL = "https://main--edgeservices--ddttom.hlx.page/query-index.json";
+let baseURL='';
 // Create the HTTP server
 http.createServer(async (req, res) => {
 
+    baseURL = `https://${req.headers.host}/`;
+    const myURL = new URL(req.url, baseURL);
+    let queryValue = myURL.searchParams.get('path');
+
     if (req.url.startsWith('/sitemap')) {
-        await processSitemap();
+        const newURL = new URL(queryValue);
+        const host = newURL.host;
+        await processSitemap(host);
     }
+
     if (req.url.startsWith('/readHTML')) {
-        const baseURL = `http://${req.headers.host}/`;
-        const myURL = new URL(req.url, baseURL);
-        let queryValue = myURL.searchParams.get('path');
-
-        if (!queryValue) {
-            queryValue = defaultSitemap;
-        }
-
         try {
             const result = await scrape(queryValue);
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end("done");
         } catch (error) {
             logger.error(`Scraping error: ${error}`);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ message: 'Internal Server Error' }));
         }
-    } else if (req.url === '/') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end('<h1>Welcome to the HTML Creator service.</h1><a href="/readHTML?path="' + defaultSitemap + '">Click here to start</a>');
+        res.end("done");
+    }
+    if (req.url === '/') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<h1>Welcome to the HTML Creator service.</h1><a href="/sitemap?path="' + sitemapURL + '">Click here to start</a>');
     } else {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ message: 'Resource not found' }));
     }
 }).listen(port, () => {
-    logger.info(`Server running on http://localhost:${port}/`+'readHTML?path=' + defaultSitemap);
+    logger.info(`Server running on http://localhost:${port}/`+'sitemap?path=' + sitemapURL);
 });
 
 function fixup(content) {
@@ -59,14 +59,14 @@ function fixup(content) {
     content = content.replace('<script type="application/ld+json"' ,'\n<script type="application/ld+json"' );
     return content;
 }
-async function processSitemap() {
+async function processSitemap(host) {
     try {
-        const sitemap = await fetchJson(defaultSitemap);
+        const sitemap = await fetchJson(sitemapURL);
 
         if (sitemap.data && Array.isArray(sitemap.data)) {
             for (const item of sitemap.data) {
                 try {
-                    await extract(item.path);
+                    await scrape("https://"+ host + item.path);
                     console.log(`Extraction successful for ${item.path}`);
                 } catch (error) {
                     console.error(`Error extracting ${item.path}: ${error}`);
@@ -79,7 +79,6 @@ async function processSitemap() {
         console.error(`Failed to fetch or process sitemap: ${error}`);
     }
 }
-
 function fetchJson(url) {
     return new Promise((resolve, reject) => {
         https.get(url, (res) => {
@@ -99,8 +98,6 @@ function fetchJson(url) {
     });
 }
 
-
-// Puppeteer function to scrape HTML content
 async function scrape(url) {
     const browser = await puppeteer.launch();
     const page = await browser.newPage();
