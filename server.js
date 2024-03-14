@@ -1,6 +1,7 @@
 const puppeteer = require('puppeteer');
 const logger = require('./api/logging/logger');
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
@@ -8,18 +9,21 @@ const {query} = require("winston");
 // Set up the server port
 const port = process.env.PORT || 3002;
 
-let defaultpath = "https://ddttom.global.ssl.fastly.net/article/13-must-have-features-in-a-content-management-system";
+let defaultSitemap = "https://main--edgeservices--ddttom.hlx.page/query-index.json";
 
-defaultpath =  "https://ddttom.global.ssl.fastly.net/article/new-adobe-cms-a-faster-way-to-publish-content-but-at-what-cost";
 // Create the HTTP server
 http.createServer(async (req, res) => {
+
+    if (req.url.startsWith('/sitemap')) {
+        await processSitemap();
+    }
     if (req.url.startsWith('/readHTML')) {
-        const baseURL = `http://${req.headers.host}/`; // Use http as we're not implementing https here
+        const baseURL = `http://${req.headers.host}/`;
         const myURL = new URL(req.url, baseURL);
         let queryValue = myURL.searchParams.get('path');
 
         if (!queryValue) {
-            queryValue = defaultpath;
+            queryValue = defaultSitemap;
         }
 
         try {
@@ -33,13 +37,13 @@ http.createServer(async (req, res) => {
         }
     } else if (req.url === '/') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end('<h1>Welcome to the HTML Creator service.</h1><a href="/readHTML?path="' + defaultpath + '">Click here to start</a>');
+        res.end('<h1>Welcome to the HTML Creator service.</h1><a href="/readHTML?path="' + defaultSitemap + '">Click here to start</a>');
     } else {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ message: 'Resource not found' }));
     }
 }).listen(port, () => {
-    logger.info(`Server running on http://localhost:${port}/`+'readHTML?path=' + defaultpath);
+    logger.info(`Server running on http://localhost:${port}/`+'readHTML?path=' + defaultSitemap);
 });
 
 function fixup(content) {
@@ -55,6 +59,46 @@ function fixup(content) {
     content = content.replace('<script type="application/ld+json"' ,'\n<script type="application/ld+json"' );
     return content;
 }
+async function processSitemap() {
+    try {
+        const sitemap = await fetchJson(defaultSitemap);
+
+        if (sitemap.data && Array.isArray(sitemap.data)) {
+            for (const item of sitemap.data) {
+                try {
+                    await extract(item.path);
+                    console.log(`Extraction successful for ${item.path}`);
+                } catch (error) {
+                    console.error(`Error extracting ${item.path}: ${error}`);
+                }
+            }
+        } else {
+            console.error('Invalid sitemap structure: missing or invalid "data" property');
+        }
+    } catch (error) {
+        console.error(`Failed to fetch or process sitemap: ${error}`);
+    }
+}
+
+function fetchJson(url) {
+    return new Promise((resolve, reject) => {
+        https.get(url, (res) => {
+            let data = '';
+            res.on('data', (chunk) => data += chunk);
+            res.on('end', () => {
+                try {
+                    const parsedData = JSON.parse(data);
+                    resolve(parsedData);
+                } catch (e) {
+                    reject(`Error parsing JSON: ${e}`);
+                }
+            });
+        }).on('error', (e) => {
+            reject(`HTTP request failed: ${e}`);
+        });
+    });
+}
+
 
 // Puppeteer function to scrape HTML content
 async function scrape(url) {
