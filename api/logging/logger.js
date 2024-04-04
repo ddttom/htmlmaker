@@ -12,7 +12,7 @@ const logger = createLogger({
             info.level = info.level.toUpperCase()
             return info;
         })(),
-        label({ label: 'PDF Generator' }),
+        label({ label: 'HTML Maker' }),
         timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
         logFormat
     ),

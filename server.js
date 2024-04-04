@@ -4,46 +4,71 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { URL } = require('url');
-const {query} = require("winston");
+// const {query} = require("winston");
 // Set up the server port
 const port = process.env.PORT || 3002;
 
+let htmltest = "https://main--edgeservices--ddttom.hlx.page/complexindex";
 let sitemapURL = "https://main--edgeservices--ddttom.hlx.page/query-index.json";
 let baseURL='';
+let results="";
+let test='html';
+let prompt = '';
+if (test==='html') {
+    prompt = '/readHTML?path=' + htmltest;
+} else {
+    prompt = '/sitemap?path="' + sitemapURL;
+}
+const serverprompt = `<h1>Welcome to the HTML Creator service.</h1><a href="${prompt}">Click here to start</a>`;
+async function handlesitemap(queryValue, res) {
+    const newURL = new URL(queryValue);
+    const host = newURL.host;
+    await processSitemap(host);
+    res.writeHead(200, {'Content-Type': 'text/html'});
+    res.write(results);
+    res.end("<br>done");
+}
+
+async function handlehtml(queryValue, res) {
+    try {
+        await scrape(queryValue+"?skipdebug=true");
+        res.writeHead(200, {'Content-Type': 'text/html'});
+        res.write(results);
+        res.end("done");
+
+    } catch (error) {
+        messaging(`Scraping error: ${error}`);
+        res.writeHead(500, {'Content-Type': 'application/json'});
+        res.end(JSON.stringify({message: 'Internal Server Error'}));
+    }
+}
+
 // Create the HTTP server
 http.createServer(async (req, res) => {
-
     baseURL = `https://${req.headers.host}/`;
     const myURL = new URL(req.url, baseURL);
     let queryValue = myURL.searchParams.get('path');
 
-    if (req.url.startsWith('/sitemap')) {
-        const newURL = new URL(queryValue);
-        const host = newURL.host;
-        await processSitemap(host);
-    }
-
-    if (req.url.startsWith('/readHTML')) {
-        try {
-            const result = await scrape(queryValue);
-        } catch (error) {
-            logger.error(`Scraping error: ${error}`);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ message: 'Internal Server Error' }));
-        }
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end("done");
-    }
-    if (req.url === '/') {
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end('<h1>Welcome to the HTML Creator service.</h1><a href="/sitemap?path="' + sitemapURL + '">Click here to start</a>');
-    } else {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ message: 'Resource not found' }));
+    let task= req.url.split('?')[0];
+    switch (task) {
+        case '/':
+            res.writeHead(200, {'Content-Type': 'text/html'});
+            res.end(serverprompt);
+            break;
+        case '/sitemap':
+            await handlesitemap(queryValue, res);
+            break;
+        case '/readHTML':
+            await handlehtml(queryValue, res);
+            break;
+        default:
+            res.writeHead(404, {'Content-Type': 'application/json'});
+            res.end(JSON.stringify({message: 'Resource not found'}));
     }
 }).listen(port, () => {
-    logger.info(`Server running on http://localhost:${port}/`+'sitemap?path=' + sitemapURL);
+    console.log(`Server running on http://localhost:${port}${prompt}`);
 });
 
 function fixup(content) {
@@ -53,30 +78,46 @@ function fixup(content) {
         contentArray[i] = contentArray[i].trimRight();
     }
     content = contentArray.join('\n');
+    content = content.replaceAll('><head','>\n  <head');
+    content = content.replaceAll('></head','>\n</head');
+    content = content.replaceAll('></footer','>\n</footer');
+
+
+    content=content.replaceAll('">{', '">\n{');
+    content=content.replaceAll('}</', '}\n</');
+    content=content.replaceAll('><meta', '>\n<meta');
+    content=content.replaceAll('><link', '>\n<link');
+    content=content.replaceAll('><script', '>\n<script');
+    content=content.replaceAll('><style', '>\n<style');
+    content=content.replaceAll('<footer></footer>','');
+    content=content.replaceAll('<header></header>','');
+    while (content.includes(' \n')) {
+        content = content.replaceAll(' \n', '\n');
+    }
     while (content.includes('\n\n')) {
         content = content.replaceAll('\n\n', '\n');
     }
-    content = content.replace('<script type="application/ld+json"' ,'\n<script type="application/ld+json"' );
     return content;
 }
 async function processSitemap(host) {
     try {
         const sitemap = await fetchJson(sitemapURL);
-
         if (sitemap.data && Array.isArray(sitemap.data)) {
             for (const item of sitemap.data) {
                 try {
-                    await scrape("https://"+ host + item.path);
-                    console.log(`Extraction successful for ${item.path}`);
+                    if (!item.path.startsWith('/tools')) {
+                            await scrape("https://" + host + item.path + "?skipdebug=true");
+                            messaging(`Extraction successful for ${item.path}`);
+                    }
                 } catch (error) {
-                    console.error(`Error extracting ${item.path}: ${error}`);
+                    messaging(`Error extracting ${item.path}: ${error}`);
                 }
             }
         } else {
-            console.error('Invalid sitemap structure: missing or invalid "data" property');
+            messaging('Invalid sitemap structure: missing or invalid "data" property');
         }
     } catch (error) {
-        console.error(`Failed to fetch or process sitemap: ${error}`);
+        messaging(`Failed to fetch or process sitemap: ${error}`);
     }
 }
 function fetchJson(url) {
@@ -106,23 +147,45 @@ async function scrape(url) {
     const content = await page.content();
     await browser.close();
 
-    const filePath = `${getPathname(url)}.html`; // Ensure extension is added
+    const filePath = `${os.homedir()}/scrape${getPathname(url)}.html`;
     return new Promise((resolve, reject) => {
         const fixedcontent = fixup(content);
+        createPathIfNotExist(filePath);
         fs.writeFile(filePath, fixedcontent, err => {
             if (err) {
-                logger.error(`Error writing file: ${err}`);
+                const error =`Error writing file: ${err}`;
+                messaging(error);
                 reject(err);
             } else {
-                logger.info(`Saved DOM content to ${filePath}`);
+                const message=`Saved DOM content to ${filePath}`
+                messaging(message);
                 resolve(content); // Resolve with content instead of file path
             }
         });
     });
 }
 
+function createPathIfNotExist(filePath) {
+    const dirName = path.dirname(filePath);
+
+    fs.mkdirSync(dirName, { recursive: true }, (err) => {
+        if (err) {
+            if (err.code !== 'EEXIST') { // Ignore error if directory already exists
+                messaging('Error creating directory:', err);
+            }
+        } else {
+            messaging(`Directory created: ${dirName}`);
+        }
+    });
+}
 // Function to extract the last part of the path without the extension
 function getPathname(urlString) {
     const parsedUrl = new URL(urlString);
     return parsedUrl.pathname;
+}
+
+function messaging(message) {
+    logger.info(message);
+    console.log(message);
+    results+='<br>'+message;
 }
